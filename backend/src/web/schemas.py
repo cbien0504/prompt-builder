@@ -54,13 +54,18 @@ class SearchResponse(BaseModel):
 class ContextRequest(SearchRequest):
     language: Literal["eng", "vie"] = "vie"
 
+
+class Prompt(BaseModel):
+    prompt_output: str
+    tokens: int
+
 class ContextResponse(BaseModel):
-    prompts: Optional[List[str]] = None
-    total_tokens: Optional[int] = None
+    prompts: Optional[List[Prompt]] = None
     part_count: Optional[int] = None
     error: Optional[str] = None
     search_code_time: Optional[float] = None
     build_prompt_time: Optional[float] = None
+    total_tokens: Optional[int] = None
 
 
 class AnswerRequest(BaseModel):

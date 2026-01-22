@@ -8,7 +8,7 @@ from ..utils import parse_query
 from ..core import ChunkRecord
 import os
 from ..web.routes.folders import PROJECT_ROOT
-
+from ..web.schemas import Prompt
 def _get_token_counter(model: str | None = None) -> Callable[[str], int]:
     try:
         import tiktoken  # type: ignore
@@ -165,34 +165,34 @@ class PromptBuilder:
         self.config = config or PromptConfig()
         self.count_tokens = _get_token_counter(self.config.model)
 
-    def build_system_prompt(self, query: str, file_refs: List[Dict[str, Optional[int]]], language: Literal["eng", "vie"] = "vie") -> str:
+    def build_system_prompt(self, language: Literal["eng", "vie"] = "vie") -> str:
         tpl = _read_template("system_prompt.md", language)
-        code = build_code_context(file_refs)
-        return tpl.format(task=query.strip(), code=code)
+        print("system_prompt", tpl)
+        return tpl
 
-    def build_human_prompt(self, num_parts: int, language: Literal["eng", "vie"] = "vie") -> str:
-        tpl = _read_template("human_prompt.md", language)
-        notice = ""
-        if num_parts > 1:
-            notice = (
-                f"> ✅ Đã nhận đủ **{num_parts} phần context**. " if language == "vie" else f"> ✅ Received all **{num_parts} parts of context**. "
-                f"Bây giờ hãy phân tích toàn diện và trả lời theo format dưới đây.\n" if language == "vie" else f"Now please analyze the context comprehensively and respond according to the format below.\n"
-            )
-        return tpl.format(num_parts_notice=notice)
-
-    def build_context_parts(
+    def build_human_prompt_and_context_parts(
         self,
+        clean_query: str,
+        file_refs: List[Dict[str, Optional[int]]],
         hits: List[Tuple[float, ChunkRecord]],
         language: Literal["eng", "vie"] = "vie",
-    ) -> Tuple[List[List[str]], int]:
+    ) -> Tuple[List[str], int]:
+        # Build code context from file_refs
+        code_context = build_code_context(file_refs)
+        
+        # Build context items from hits
         context_items: List[str] = []
         for score, chunk in hits:
             context_items.append(_format_context_item(score, chunk))
 
         total_context_tokens = sum(self.count_tokens(x) for x in context_items)
+        if code_context:
+            total_context_tokens += self.count_tokens(code_context)
 
-        if not context_items:
-            return [[]], 0
+        if not context_items and not code_context:
+            tpl = _read_template("human_prompt.md", language)
+            human_footer = tpl.format(num_parts_notice="")
+            return [human_footer], 0
 
         if self.config.split_oversized_items:
             expanded: List[str] = []
@@ -211,8 +211,27 @@ class PromptBuilder:
 
         per_part_budget = max(1000, self.config.max_tokens - self.config.reserve_reply_tokens)
         parts = self._partition_context_items(context_items, per_part_budget, language)
+        num_parts = len(parts)
 
-        return parts, total_context_tokens
+        tpl = _read_template("human_prompt.md", language)
+        notice = ""
+        if num_parts > 1:
+            notice = (
+                f"> ✅ Đã nhận đủ **{num_parts} phần context**. " if language == "vie" else f"> ✅ Received all **{num_parts} parts of context**. "
+                f"Bây giờ hãy phân tích toàn diện và trả lời theo format dưới đây.\n" if language == "vie" else f"Now please analyze the context comprehensively and respond according to the format below.\n"
+            )
+        human_footer = tpl.format(num_parts_notice=notice)
+
+        prompts: List[str] = []
+        for i, batch in enumerate(parts):
+            is_last = (i == len(parts) - 1)
+            prompt_text = self._build_part_text(
+                i, batch, is_last, num_parts, human_footer, language,
+                clean_query=clean_query, code_context=code_context if i == 0 else None
+            )
+            prompts.append(prompt_text)
+
+        return prompts, total_context_tokens
 
     def _partition_context_items(
         self, 
@@ -283,17 +302,19 @@ class PromptBuilder:
         file_refs: List[Dict[str, Optional[int]]],
         hits: List[Tuple[float, ChunkRecord]],
         language: Literal["eng", "vie"] = "vie",
-    ) -> Tuple[str, List[str], int]:
-        system_prompt = self.build_system_prompt(clean_query, file_refs, language)
-        parts, total_tokens = self.build_context_parts(hits, language)
-        num_parts = len(parts)
-        human_footer = self.build_human_prompt(num_parts, language)
-        human_prompts: List[str] = []
-        for i, batch in enumerate(parts):
-            is_last = (i == len(parts) - 1)
-            human_prompts.append(self._build_part_text(i, batch, is_last, num_parts, human_footer, language))
+    ) -> Tuple[List[Prompt], int]:
+        system_prompt = self.build_system_prompt(language)
+        print("count system prompt", self.count_tokens(system_prompt))
+        human_prompts, total_tokens = self.build_human_prompt_and_context_parts(clean_query, file_refs, hits, language)
+        prompts: List[Prompt] = []
+        for human_prompt in human_prompts:
+            full_prompt = f"{system_prompt}\n\n{human_prompt}"
+            prompts.append(Prompt(
+                prompt_output=full_prompt,
+                tokens=self.count_tokens(full_prompt)
+            ))
 
-        return system_prompt, human_prompts, total_tokens
+        return prompts, total_tokens
 
     def _build_part_text(
         self, 
@@ -303,8 +324,21 @@ class PromptBuilder:
         num_parts: int,
         footer: str,
         language: Literal["eng", "vie"] = "vie",
+        clean_query: str = "",
+        code_context: Optional[str] = None,
     ) -> str:
         lines: List[str] = []
+        
+        # Add task/query at the beginning of first part
+        if i == 0 and clean_query:
+            task_header = "# NHIỆM VỤ HIỆN TẠI" if language == "vie" else "# CURRENT TASK"
+            lines.append(f"{task_header}\n{clean_query.strip()}\n")
+        
+        # Add code context from file_refs at the beginning of first part
+        if i == 0 and code_context:
+            code_header = "# CODE CUNG CẤP" if language == "vie" else "# PROVIDED CODE"
+            lines.append(f"{code_header}\n{code_context}\n")
+        
         lines.append(self._part_prefix(i + 1, num_parts, is_last, language))
         lines.append("## Code Fragments")
         lines.extend(batch)
@@ -322,17 +356,10 @@ def build_prompt(
     hits: List[Tuple[float, ChunkRecord]],
     language: Literal["eng", "vie"] = "vie",
     max_tokens: int = 40_000,
-) -> Tuple[List[str], int]:
+) -> Tuple[List[Prompt], int]:
     clean_query, file_refs = parse_query(query)
     config = PromptConfig(max_tokens=max_tokens)
     builder = PromptBuilder(config)
-    system_prompt, human_prompts, total_tokens = builder.build_full_prompts(clean_query, file_refs, hits, language)
+    prompts, total_tokens = builder.build_full_prompts(clean_query, file_refs, hits, language)
     
-    combined = []
-    for i, human_prompt in enumerate(human_prompts):
-        if i == 0:
-            combined.append(f"{system_prompt}\n\n{human_prompt}")
-        else:
-            combined.append(human_prompt)
-    
-    return combined, total_tokens
+    return prompts, total_tokens

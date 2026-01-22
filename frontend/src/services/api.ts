@@ -1,3 +1,5 @@
+import ignore from 'ignore'
+
 const API_BASE = '/api'
 
 export const api = {
@@ -8,85 +10,163 @@ export const api = {
     },
 
     async importProject(files: FileList) {
-        const DEFAULT_INCLUDE_RAW = [
+        const DEFAULT_INCLUDE = [
             "*.py", "*.js", "*.ts", "*.tsx", "*.jsx",
             "*.go", "*.java", "*.kt", "*.cs",
             "*.rb", "*.php", "*.rs",
             "*.c", "*.h", "*.cpp", "*.hpp",
             "*.swift",
             "*.txt", "*.yaml", "*.yml", "*.json",
+            "*.md", "*.mdx",
+            "*.html", "*.css", "*.scss", "*.sass",
+            "*.vue", "*.svelte",
         ]
 
-        const DEFAULT_EXCLUDE_RAW = [
-            ".git/**",
-            "node_modules/**",
-            "dist/**",
-            "build/**",
-            ".venv/**",
-            "venv/**",
-            "__pycache__/**",
-            ".cursorlite/**",
-            "target/**",
-            ".next/**",
-            ".idea/**",
-            ".vscode/**",
+        const DEFAULT_EXCLUDE = [
+            // Version Control
+            ".git",
+            ".svn",
+            ".hg",
+            
+            // Dependencies
+            "node_modules",
+            "vendor",
+            "bower_components",
+            
+            // Build outputs
+            "dist",
+            "build",
+            "out",
+            "target",
+            "bin",
+            "obj",
+            ".next",
+            ".nuxt",
+            ".output",
+            
+            // Python
+            ".venv",
+            "venv",
+            "env",
+            "__pycache__",
+            "*.pyc",
+            "*.pyo",
+            "*.pyd",
+            ".Python",
+            "pip-log.txt",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+            "*.egg-info",
+            
+            // IDEs & Editors
+            ".idea",
+            ".vscode",
+            ".vs",
+            "*.swp",
+            "*.swo",
+            "*~",
+            ".DS_Store",
+            "Thumbs.db",
+            ".cursorlite",
+            
+            // Environment & Config
             ".env",
             ".env.*",
+            
+            // Logs
+            "*.log",
+            "logs",
+            "npm-debug.log*",
+            "yarn-debug.log*",
+            "yarn-error.log*",
+            
+            // Testing
+            "coverage",
+            ".nyc_output",
+            "*.cover",
+            ".coverage",
+            "htmlcov",
+            
+            // Cache
+            ".cache",
+            ".parcel-cache",
+            ".eslintcache",
+            ".stylelintcache",
+            
+            // Temporary
+            "tmp",
+            "temp",
+            "*.tmp",
+            
+            // Package managers lock files
+            "package-lock.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+            "Cargo.lock",
+            "Gemfile.lock",
+            "composer.lock",
+            "poetry.lock",
+            
+            // Mobile
+            "*.xcworkspace",
+            "*.xcodeproj",
+            "Pods",
+            ".gradle",
+            
+            // Database
+            "*.db",
+            "*.sqlite",
+            "*.sqlite3",
+            
+            // Media files (optional - comment out if needed)
+            "*.jpg",
+            "*.jpeg",
+            "*.png",
+            "*.gif",
+            "*.svg",
+            "*.ico",
+            "*.mp4",
+            "*.mp3",
+            "*.pdf",
+            
+            // Other
+            ".sass-cache",
+            "*.map",
+            "*.min.js",
+            "*.min.css",
         ]
 
-        // Mirror backend/src/config.py expand_pattern behavior so nested paths match too.
-        const expandPattern = (pattern: string): string[] => {
-            const p = pattern.trim()
-            if (!p || p.startsWith('#')) return []
-            if (p.startsWith('**/')) return [p]
-            if (p.startsWith('*.')) return [p, `**/${p}`]
-            if (p.includes('/**')) return [p, `**/${p}`]
-            return [p]
-        }
+        // Create ignore instance
+        const ig = ignore().add(DEFAULT_EXCLUDE)
 
-        const expandPatterns = (patterns: string[]): string[] => {
-            const out: string[] = []
-            const seen = new Set<string>()
-            for (const p of patterns) {
-                for (const ep of expandPattern(p)) {
-                    if (!seen.has(ep)) {
-                        seen.add(ep)
-                        out.push(ep)
-                    }
-                }
-            }
-            return out
-        }
-
-        const globToRegExp = (pattern: string): RegExp => {
-            // Escape regex specials, then translate globs (*, **) to regex.
-            const escaped = pattern
-                .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-                .replace(/\*\*/g, "§§DOUBLESTAR§§")
-                .replace(/\*/g, "[^/]*")
-                .replace(/§§DOUBLESTAR§§/g, ".*")
-            return new RegExp(`^${escaped}$`)
-        }
-
-        const includeRegs = expandPatterns(DEFAULT_INCLUDE_RAW).map(globToRegExp)
-        const excludeRegs = expandPatterns(DEFAULT_EXCLUDE_RAW).map(globToRegExp)
-
-        const shouldInclude = (path: string): boolean => {
-            // Exclude first
-            if (excludeRegs.some(re => re.test(path))) return false
-            // Include list: if none match, skip
-            if (!includeRegs.some(re => re.test(path))) return false
-            return true
+        // Helper to check if file matches include patterns
+        const matchesIncludePattern = (path: string): boolean => {
+            const fileName = path.split('/').pop() || ''
+            return DEFAULT_INCLUDE.some(pattern => {
+                const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$')
+                return regex.test(fileName)
+            })
         }
 
         const formData = new FormData()
         let kept = 0
+        
         Array.from(files).forEach(file => {
             const rel = (file as any).webkitRelativePath || file.name
-            if (shouldInclude(rel)) {
-                formData.append('files', file)
-                kept += 1
+            
+            // Check if file should be excluded
+            if (ig.ignores(rel)) {
+                return
             }
+            
+            // Check if file matches include patterns
+            if (!matchesIncludePattern(rel)) {
+                return
+            }
+            
+            formData.append('files', file)
+            kept += 1
         })
 
         if (kept === 0) {

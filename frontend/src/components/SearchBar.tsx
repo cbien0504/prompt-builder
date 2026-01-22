@@ -17,7 +17,7 @@ export default function SearchBar({ activeFolderId }: Props) {
     const [query, setQuery] = useState('')
     const [results, setResults] = useState<any[]>([])
     const [prompts, setPrompts] = useState<string[]>([])
-    const [tokenCount, setTokenCount] = useState<number>(0)
+    const [tokenCounts, setTokenCounts] = useState<number[]>([])
     const [loadingAction, setLoadingAction] = useState<string | null>(null)
     const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
     const [isDragging, setIsDragging] = useState(false)
@@ -121,10 +121,15 @@ export default function SearchBar({ activeFolderId }: Props) {
         setLoadingAction('context')
         setResults([])
         setPrompts([])
+        setTokenCounts([])
         try {
             const data = await api.generateContext(finalQuery, activeFolderId, filePaths)
-            setPrompts(data.prompts || [])
-            setTokenCount(data.total_tokens || 0)
+            if (data.prompts && Array.isArray(data.prompts)) {
+                const promptOutputs = data.prompts.map((p: any) => p.prompt_output || p)
+                const tokens = data.prompts.map((p: any) => p.tokens || 0)
+                setPrompts(promptOutputs)
+                setTokenCounts(tokens)
+            }
         } catch (error) {
             alert('Context generation failed: ' + error)
         } finally {
@@ -142,7 +147,7 @@ export default function SearchBar({ activeFolderId }: Props) {
             {/* Context Viewer Component */}
             <ContextViewer 
                 prompts={prompts} 
-                tokenCount={tokenCount}
+                tokenCounts={tokenCounts}
             />
 
             {/* Spacer or Chat messages area */}

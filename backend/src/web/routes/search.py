@@ -42,11 +42,11 @@ async def generate_context(
         hits = search_code(cfg, request.query, request.top_k, collection_name=collection_name)
         search_code_time = time.time() - start_time
     prompts, total_tokens = build_prompt(request.query, hits, request.language)
-    build_prompt_time = time.time() - search_code_time - start_time
+    build_prompt_time = time.time() - start_time
     return ContextResponse(
         prompts=prompts,
-        total_tokens=total_tokens,
         part_count=len(prompts),
         search_code_time = search_code_time,
-        build_prompt_time = build_prompt_time
+        build_prompt_time = build_prompt_time,
+        total_tokens=total_tokens
     )

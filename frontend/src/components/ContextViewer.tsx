@@ -2,11 +2,11 @@ import { useState } from 'react'
 
 interface Props {
     prompts: string[]
-    tokenCount: number
+    tokenCounts: number[]
     onCopy?: (partIndex: number) => void
 }
 
-export default function ContextViewer({ prompts, tokenCount, onCopy }: Props) {
+export default function ContextViewer({ prompts, tokenCounts, onCopy }: Props) {
     const [activePart, setActivePart] = useState(0)
     const [copied, setCopied] = useState(false)
     const handleCopy = async () => {
@@ -107,7 +107,7 @@ export default function ContextViewer({ prompts, tokenCount, onCopy }: Props) {
                 fontSize: '0.85em', 
                 color: 'var(--text-secondary)' 
             }}>
-                Total Estimated Tokens: <strong>{tokenCount}</strong>
+                Estimated Tokens: <strong>{tokenCounts[activePart] || 0}</strong>
                 {prompts.length > 1 && (
                     <span style={{ marginLeft: '1rem', color: '#d97706', fontWeight: 500 }}>
                         ℹ️ Split into {prompts.length} parts (Too large for one message)

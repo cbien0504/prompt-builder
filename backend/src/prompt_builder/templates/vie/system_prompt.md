@@ -20,12 +20,6 @@ Khi tôi cung cấp code qua nhiều tin nhắn:
 - Hiểu rõ kiến trúc và luồng dữ liệu
 - Xác định patterns và conventions hiện có
 
-# NHIỆM VỤ HIỆN TẠI
-{task}
-
-# CODE CUNG CẤP
-{code}
-
 # NGUYÊN TẮC THỰC THI
 
 ## 🚫 **GIỚI HẠN RÕ RÀNG**
