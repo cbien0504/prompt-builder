@@ -10,7 +10,7 @@
   --text-primary: #212529;
   --text-secondary: #6c757d;
   --border-color: #dee2e6;
-  --accent-color: #646cff;
+  --accent-color: #153450;
   /* Indigo */
 
   color-scheme: light;
@@ -59,7 +59,8 @@ body {
   overflow: hidden;
   background-color: var(--bg-primary);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;  /* ← ĐỔI THÀNH ROW hoặc XÓA DÒNG NÀY */
+  gap: 1rem;  /* ← THÊM GAP ĐỂ CÓ KHOẢNG CÁCH */
 }
 
 button {

@@ -55,6 +55,22 @@ export default function FolderList({ folders, activeFolderId, onUpdate, onSelect
         setIsDropdownOpen(false)
     }
 
+    const handleDeleteFolder = async (folderId: number) => {
+        const target = folders.find(f => f.id === folderId)
+        const confirmed = window.confirm(`Delete project "${target?.name ?? folderId}"?`)
+        if (!confirmed) return
+        try {
+            await api.deleteFolder(folderId)
+            if (activeFolderId === folderId) {
+                onSelectFolder(null)
+            }
+            onUpdate()
+        } catch (err) {
+            console.error('Failed to delete folder', err)
+            alert('Failed to delete project')
+        }
+    }
+
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files
         if (!files || files.length === 0) return
@@ -66,37 +82,6 @@ export default function FolderList({ folders, activeFolderId, onUpdate, onSelect
             
             // Refresh folder list immediately
             onUpdate()
-            
-            // Listen to SSE for indexing progress
-            const folderId = result.folder_id
-            console.log(`[Import] Listening to indexing progress for folder ${folderId}`)
-            
-            const eventSource = new EventSource(`/api/folders/${folderId}/index/progress`)
-            
-            eventSource.addEventListener('progress', (event: MessageEvent) => {
-                try {
-                    const data = JSON.parse(event.data)
-                    console.log('[Import] Indexing progress:', data)
-                    if (data.status === 'indexed' || data.status === 'error') {
-                        eventSource.close()
-                        onUpdate()
-                        if (data.status === 'indexed') {
-                            console.log('[Import] Indexing completed, selecting folder')
-                            onSelectFolder(folderId)
-                        } else {
-                            console.error('[Import] Indexing error:', data.error)
-                            alert(`Indexing failed: ${data.error || 'Unknown error'}`)
-                        }
-                    }
-                } catch (e) {
-                    console.error('Error parsing SSE data:', e)
-                }
-            })
-            
-            eventSource.onerror = (err) => {
-                console.error('[Import] SSE error:', err)
-                eventSource.close()
-            }
             
             // Poll for updates as fallback
             const pollInterval = setInterval(() => {
@@ -257,33 +242,52 @@ export default function FolderList({ folders, activeFolderId, onUpdate, onSelect
                                 }
                             }}
                         >
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ 
-                                    fontWeight: folder.id === activeFolderId ? 600 : 500, 
-                                    fontSize: '0.85em',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap'
-                                }}>
-                                    {folder.name}
-                        </div>
-                                <div style={{ 
-                                    fontSize: '0.7em', 
-                                    opacity: 0.8,
-                                    marginTop: '0.125rem'
-                                }}>
-                                    <span style={{
-                                        color: folder.status === 'indexed' ? '#16a34a' : 
-                                               folder.status === 'indexing' ? '#3b82f6' : '#d97706',
-                                        fontWeight: 500
-                            }}>
-                                {folder.status}
-                            </span>
-                        </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: 1, minWidth: 0 }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ 
+                                        fontWeight: folder.id === activeFolderId ? 600 : 500, 
+                                        fontSize: '0.85em',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap'
+                                    }}>
+                                        {folder.name}
+                                    </div>
+                                    <div style={{ 
+                                        fontSize: '0.7em', 
+                                        opacity: 0.8,
+                                        marginTop: '0.125rem'
+                                    }}>
+                                        <span style={{
+                                            color: folder.status === 'indexed' ? '#16a34a' : 
+                                                   folder.status === 'indexing' ? '#3b82f6' : '#d97706',
+                                            fontWeight: 500
+                                        }}>
+                                            {folder.status}
+                                        </span>
+                                    </div>
+                                </div>
+                                <button
+                                    title="Delete project"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleDeleteFolder(folder.id)
+                                    }}
+                                    style={{
+                                        border: 'none',
+                                        background: 'transparent',
+                                        color: '#ef4444',
+                                        cursor: 'pointer',
+                                        padding: '0.1rem 0.25rem',
+                                        fontSize: '0.9em',
+                                    }}
+                                >
+                                    🗑
+                                </button>
+                                {folder.id === activeFolderId && (
+                                    <span style={{ marginLeft: '0.25rem', fontSize: '0.7em' }}>✓</span>
+                                )}
                             </div>
-                            {folder.id === activeFolderId && (
-                                <span style={{ marginLeft: '0.5rem', fontSize: '0.7em' }}>✓</span>
-                            )}
                         </div>
                     ))}
                     {folders.length === 0 && (

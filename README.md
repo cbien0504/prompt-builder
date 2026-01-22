@@ -30,10 +30,10 @@ cd cursorlite
 docker compose up -d --build
 
 # Truy cập ứng dụng
-open http://localhost:3000
+open http://localhost:${FRONTEND_PORT:-3000}
 
 # Truy cập Qdrant
-open http://localhost:6333/dashboard
+open http://localhost:${QDRANT_PORT:-6333}/dashboard
 ```
 
 ## 📁 Cấu trúc Project
@@ -236,13 +236,13 @@ docker compose exec backend alembic downgrade -1
 
 ```bash
 # Health check
-curl http://localhost:8000/health
+curl http://localhost:${BACKEND_PORT:-8000}/health
 
 # Discover subprojects
-curl -X POST http://localhost:8000/folders/discover
+curl -X POST http://localhost:${BACKEND_PORT:-8000}/folders/discover
 
 # List folders
-curl http://localhost:8000/folders
+curl http://localhost:${BACKEND_PORT:-8000}/folders
 ```
 
 ## 📊 Architecture
@@ -283,10 +283,10 @@ Nếu thấy lỗi `__init__() takes exactly 1 argument (2 given)`:
 
 ```bash
 # Check Qdrant health
-curl http://localhost:6333/health
+curl http://localhost:${QDRANT_PORT:-6333}/health
 
 # View collections
-curl http://localhost:6333/collections
+curl http://localhost:${QDRANT_PORT:-6333}/collections
 ```
 
 ### Database Issues
@@ -300,7 +300,7 @@ docker compose exec backend alembic upgrade head
 
 ## 📝 API Documentation
 
-Truy cập: http://localhost:8000/docs
+Truy cập: http://localhost:${BACKEND_PORT:-8000}/docs
 
 ## 🤝 Contributing
 

@@ -1,28 +1,20 @@
-"""Pydantic schemas for API requests/responses."""
-
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Literal
 
 
 class FolderBase(BaseModel):
-    """Base folder schema."""
     path: str
     name: str
 
-
 class FolderCreate(BaseModel):
-    """Schema for creating a folder."""
     path: str
 
-
 class FolderResponse(BaseModel):
-    """Schema for folder response."""
     id: int
     path: str
     name: str
     status: str
-    repo_count: int = 0  # Number of repositories in subproject
     total_files: int
     indexed_files: int
     total_chunks: int
@@ -36,7 +28,6 @@ class FolderResponse(BaseModel):
 
 
 class IndexRequest(BaseModel):
-    """Schema for indexing request."""
     incremental: bool = True
 
 
@@ -47,7 +38,6 @@ class SearchRequest(BaseModel):
 
 
 class SearchResult(BaseModel):
-    """Schema for search result."""
     folder_id: int
     folder_name: str
     file_path: str
@@ -58,19 +48,29 @@ class SearchResult(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    """Schema for search response."""
     results: List[SearchResult]
 
 
-class ContextRequest(BaseModel):
-    """Schema for context generation request."""
-    task: str
-    folder_ids: Optional[List[int]] = None
-    top_k: int = 10
-
+class ContextRequest(SearchRequest):
+    language: Literal["eng", "vie"] = "vie"
 
 class ContextResponse(BaseModel):
-    """Schema for context response."""
-    prompts: List[str]
-    total_tokens: int
-    part_count: int
+    prompts: Optional[List[str]] = None
+    total_tokens: Optional[int] = None
+    part_count: Optional[int] = None
+    error: Optional[str] = None
+    search_code_time: Optional[float] = None
+    build_prompt_time: Optional[float] = None
+
+
+class AnswerRequest(BaseModel):
+    query: Optional[str] = None
+    folder_id: int
+    top_k: int = 10
+    include_prompts: bool = False
+
+class AnswerResponse(BaseModel):
+    answer: Optional[str] = None
+    time_taken: float
+    usage: Optional[Dict[str, int]] = None
+    error: Optional[str] = None

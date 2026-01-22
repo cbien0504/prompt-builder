@@ -1,9 +1,12 @@
 import { useState, useRef } from 'react'
 import { api } from '../services/api'
+import ContextViewer from './ContextViewer'
 
 interface AttachedFile {
     path: string
     name: string
+    startLine?: number
+    endLine?: number
 }
 
 interface Props {
@@ -14,58 +17,12 @@ export default function SearchBar({ activeFolderId }: Props) {
     const [query, setQuery] = useState('')
     const [results, setResults] = useState<any[]>([])
     const [prompts, setPrompts] = useState<string[]>([])
-    const [activePart, setActivePart] = useState(0)
     const [tokenCount, setTokenCount] = useState<number>(0)
     const [loadingAction, setLoadingAction] = useState<string | null>(null)
     const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
     const [isDragging, setIsDragging] = useState(false)
     const chatInputRef = useRef<HTMLTextAreaElement>(null)
     const isLoading = !!loadingAction
-
-    const handleSearch = async () => {
-        if (!query.trim()) return
-        if (!activeFolderId) {
-            alert('Please select a project first')
-            return
-        }
-
-        setLoadingAction('search')
-        setPrompts([])
-        try {
-            const data = await api.search(query, activeFolderId)
-            setResults(data.results || [])
-        } catch (error) {
-            alert('Search failed: ' + error)
-        } finally {
-            setLoadingAction(null)
-        }
-    }
-
-    const handleGenerate = async () => {
-        if (!query.trim()) return
-
-        setLoadingAction('generate')
-        setResults([])
-        setPrompts([])
-        try {
-            const data = await api.generateContext(query)
-            setPrompts(data.prompts || [])
-            setActivePart(0)
-            setTokenCount(data.total_tokens || 0)
-        } catch (error) {
-            alert('Generation failed: ' + error)
-        } finally {
-            setLoadingAction(null)
-        }
-    }
-
-    const copyPrompt = () => {
-        const text = prompts[activePart]
-        if (text) {
-            navigator.clipboard.writeText(text)
-            alert(`Copied Part ${activePart + 1} to clipboard!`)
-        }
-    }
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault()
@@ -84,17 +41,41 @@ export default function SearchBar({ activeFolderId }: Props) {
         e.stopPropagation()
         setIsDragging(false)
 
-        const filePath = e.dataTransfer.getData('text/plain')
-        if (filePath) {
-            const fileName = filePath.split('/').pop() || filePath
-            if (!attachedFiles.find(f => f.path === filePath)) {
-                setAttachedFiles([...attachedFiles, { path: filePath, name: fileName }])
+        const dropped = e.dataTransfer.getData('text/plain')?.trim()
+        if (!dropped) return
+
+        // Support "path:start-end" for code selections (Cursor-like)
+        const m = dropped.match(/^(.*):(\d+)-(\d+)$/)
+        if (m) {
+            const path = m[1]
+            const startLine = parseInt(m[2], 10)
+            const endLine = parseInt(m[3], 10)
+            const name = path.split('/').pop() || path
+            const key = `${path}:${startLine}-${endLine}`
+            if (!attachedFiles.find(f => (f.startLine && f.endLine) ? `${f.path}:${f.startLine}-${f.endLine}` === key : f.path === key)) {
+                setAttachedFiles([...attachedFiles, { path, name, startLine, endLine }])
             }
+            return
+        }
+
+        // Fallback: plain file path
+        const filePath = dropped
+        const fileName = filePath.split('/').pop() || filePath
+        if (!attachedFiles.find(f => f.path === filePath && !f.startLine && !f.endLine)) {
+            setAttachedFiles([...attachedFiles, { path: filePath, name: fileName }])
         }
     }
 
-    const removeFile = (path: string) => {
-        setAttachedFiles(attachedFiles.filter(f => f.path !== path))
+    const removeFile = (path: string, startLine?: number, endLine?: number) => {
+        const key = (typeof startLine === 'number' && typeof endLine === 'number')
+            ? `${path}:${startLine}-${endLine}`
+            : path
+        setAttachedFiles(attachedFiles.filter(f => {
+            const k = (typeof f.startLine === 'number' && typeof f.endLine === 'number')
+                ? `${f.path}:${f.startLine}-${f.endLine}`
+                : f.path
+            return k !== key
+        }))
     }
 
     const getFileIcon = (fileName: string): string => {
@@ -119,22 +100,33 @@ export default function SearchBar({ activeFolderId }: Props) {
             return
         }
 
-        // Format query with attached files
         let finalQuery = query
         if (attachedFiles.length > 0) {
-            const fileRefs = attachedFiles.map(f => `@${f.path}`).join(' ')
+            const fileRefs = attachedFiles.map(f => {
+                if (typeof f.startLine === 'number' && typeof f.endLine === 'number') {
+                    return `@${f.path}:${f.startLine}-${f.endLine}`
+                }
+                return `@${f.path}`
+            }).join(' ')
             finalQuery = fileRefs + (query.trim() ? ` ${query}` : '')
         }
 
-        setLoadingAction('search')
+        // Map attached files to backend schema
+        const filePaths = attachedFiles.map(f => ({
+            path: f.path,
+            start_line: typeof f.startLine === 'number' ? f.startLine : undefined,
+            end_line: typeof f.endLine === 'number' ? f.endLine : undefined
+        }))
+
+        setLoadingAction('context')
+        setResults([])
         setPrompts([])
         try {
-            const data = await api.search(finalQuery, activeFolderId)
-            setResults(data.results || [])
-            setQuery('')
-            setAttachedFiles([])
+            const data = await api.generateContext(finalQuery, activeFolderId, filePaths)
+            setPrompts(data.prompts || [])
+            setTokenCount(data.total_tokens || 0)
         } catch (error) {
-            alert('Search failed: ' + error)
+            alert('Context generation failed: ' + error)
         } finally {
             setLoadingAction(null)
         }
@@ -147,19 +139,29 @@ export default function SearchBar({ activeFolderId }: Props) {
             height: '100%',
             maxHeight: 'calc(100vh - 2rem)'
         }}>
-            {/* Chat messages area */}
-            <div style={{ 
-                flex: 1, 
-                overflowY: 'auto', 
-                marginBottom: '1rem',
-                padding: '1rem',
-                background: 'var(--bg-secondary)',
-                borderRadius: '8px',
-                border: '1px solid var(--border-color)'
-            }}>
-                {results.length > 0 ? (
+            {/* Context Viewer Component */}
+            <ContextViewer 
+                prompts={prompts} 
+                tokenCount={tokenCount}
+            />
+
+            {/* Spacer or Chat messages area */}
+            {results.length > 0 ? (
+                <div style={{ 
+                    flex: 1, 
+                    overflowY: 'auto', 
+                    marginBottom: '1rem',
+                    padding: '1rem',
+                    background: 'var(--bg-secondary)',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)'
+                }}>
                     <div>
-                        <div style={{ marginBottom: '0.5rem', fontWeight: 500, color: 'var(--text-secondary)' }}>
+                        <div style={{ 
+                            marginBottom: '0.5rem', 
+                            fontWeight: 500, 
+                            color: 'var(--text-secondary)' 
+                        }}>
                             Search Results ({results.length})
                         </div>
                         {results.map((result, idx) => (
@@ -170,7 +172,11 @@ export default function SearchBar({ activeFolderId }: Props) {
                                 borderRadius: '8px',
                                 border: '1px solid var(--border-color)'
                             }}>
-                                <div style={{ fontSize: '0.85em', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+                                <div style={{ 
+                                    fontSize: '0.85em', 
+                                    color: 'var(--text-secondary)', 
+                                    marginBottom: '0.5rem' 
+                                }}>
                                     {result.file_path}:{result.start_line}-{result.end_line} (score: {result.score.toFixed(4)})
                                 </div>
                                 <pre style={{
@@ -187,19 +193,10 @@ export default function SearchBar({ activeFolderId }: Props) {
                             </div>
                         ))}
                     </div>
-                ) : (
-                    !isLoading && (
-                        <div style={{ 
-                            color: 'var(--text-secondary)', 
-                            textAlign: 'center', 
-                            padding: '2rem',
-                            fontSize: '0.9em'
-                        }}>
-                            {prompts.length === 0 ? 'Start a conversation...' : ''}
-                        </div>
-                    )
-                )}
-            </div>
+                </div>
+            ) : (
+                <div style={{ flex: 1 }} />
+            )}
 
             {/* Chat input area */}
             <div
@@ -237,9 +234,14 @@ export default function SearchBar({ activeFolderId }: Props) {
                                 }}
                             >
                                 <span>{getFileIcon(file.name)}</span>
-                                <span style={{ color: 'var(--text-primary)' }}>@{file.path}</span>
+                                <span style={{ color: 'var(--text-primary)' }}>
+                                    @{file.path}
+                                    {typeof file.startLine === 'number' && typeof file.endLine === 'number'
+                                        ? `:${file.startLine}-${file.endLine}`
+                                        : ''}
+                                </span>
                                 <button
-                                    onClick={() => removeFile(file.path)}
+                                    onClick={() => removeFile(file.path, file.startLine, file.endLine)}
                                     style={{
                                         background: 'transparent',
                                         border: 'none',
@@ -283,7 +285,7 @@ export default function SearchBar({ activeFolderId }: Props) {
                             fontSize: '0.9em'
                         }}
                     />
-                    <button 
+                    <button
                         onClick={handleSendMessage} 
                         disabled={isLoading || (!query.trim() && attachedFiles.length === 0)}
                         style={{
@@ -294,66 +296,11 @@ export default function SearchBar({ activeFolderId }: Props) {
                             borderColor: 'var(--accent-color)'
                         }}
                     >
-                        {loadingAction === 'search' && <span className="spinner"></span>}
+                        {isLoading && <span className="spinner"></span>}
                         Send
                     </button>
                 </div>
             </div>
-
-            {/* Generated prompts */}
-            {prompts.length > 0 && (
-                <div className="card" style={{ marginTop: '1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                            <div style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>Generated Context</div>
-                            {prompts.length > 1 && prompts.map((_, i) => (
-                                <button
-                                    key={i}
-                                    onClick={() => setActivePart(i)}
-                                    style={{
-                                        padding: '0.2rem 0.6rem',
-                                        fontSize: '0.8em',
-                                        background: activePart === i ? 'var(--accent-color)' : 'transparent',
-                                        color: activePart === i ? '#fff' : 'var(--text-secondary)',
-                                        border: '1px solid var(--border-color)',
-                                        borderRadius: '4px',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    Part {i + 1}
-                                </button>
-                            ))}
-                        </div>
-                        <button onClick={copyPrompt} style={{ fontSize: '0.85em', padding: '0.2em 0.8em' }}>
-                            Copy Part {activePart + 1}
-                        </button>
-                    </div>
-                    <textarea
-                        value={prompts[activePart] || ''}
-                        readOnly
-                        style={{
-                            width: '100%',
-                            height: '300px',
-                            padding: '0.5rem',
-                            borderRadius: '4px',
-                            border: '1px solid var(--border-color)',
-                            background: 'var(--bg-tertiary)',
-                            color: 'var(--text-primary)',
-                            fontFamily: 'monospace',
-                            fontSize: '0.9em',
-                            resize: 'vertical'
-                        }}
-                    />
-                    <div style={{ marginTop: '0.5rem', fontSize: '0.85em', color: 'var(--text-secondary)' }}>
-                        Total Estimated Tokens: <strong>{tokenCount}</strong>
-                        {prompts.length > 1 && (
-                            <span style={{ marginLeft: '1rem', color: '#d97706', fontWeight: 500 }}>
-                                ℹ️ Split into {prompts.length} parts (Too large for one message)
-                            </span>
-                        )}
-                    </div>
-                </div>
-            )}
         </div>
     )
 }

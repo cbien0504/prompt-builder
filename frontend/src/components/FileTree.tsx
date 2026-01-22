@@ -11,6 +11,8 @@ interface FileTreeNode {
 interface Props {
     folderId: number | null
     onFileDrag?: (filePath: string) => void
+    onFileSelect?: (filePath: string) => void
+    selectedPath?: string | null
 }
 
 function getFileIcon(fileName: string): string {
@@ -31,20 +33,24 @@ function getFileIcon(fileName: string): string {
 function TreeNode({ 
     node, 
     level = 0, 
-    basePath = '',
-    onFileDrag 
+    rootPath = '',
+    onFileDrag,
+    onFileClick,
+    selectedPath
 }: { 
     node: FileTreeNode
     level?: number
-    basePath?: string
+    rootPath?: string
     onFileDrag?: (filePath: string) => void
+    onFileClick?: (filePath: string) => void
+    selectedPath?: string | null
 }) {
     const [isExpanded, setIsExpanded] = useState(level < 2)
+    const [isHovered, setIsHovered] = useState(false)
     const isDirectory = node.type === 'directory'
     const hasChildren = node.children && node.children.length > 0
-    const fullPath = basePath && basePath !== node.name 
-        ? `${basePath}/${node.path || node.name}` 
-        : (node.path || node.name)
+    const relativePath = node.path || node.name
+    const fullPath = rootPath ? `${rootPath}/${relativePath}` : relativePath
 
     const handleDragStart = (e: React.DragEvent) => {
         if (!isDirectory) {
@@ -64,24 +70,31 @@ function TreeNode({
                     alignItems: 'center',
                     padding: '0.25rem 0',
                     paddingLeft: `${level * 1.25}rem`,
-                    cursor: isDirectory ? 'pointer' : 'default',
+                    cursor: 'pointer',
                     fontSize: '0.85em',
                     color: 'var(--text-primary)',
                     userSelect: 'none',
                     borderRadius: '4px',
-                    transition: 'background 0.2s'
+                    transition: 'background 0.2s',
+                    background: !isDirectory && (selectedPath === fullPath || isHovered)
+                        ? 'var(--bg-tertiary)'
+                        : 'transparent'
                 }}
-                onClick={() => isDirectory && setIsExpanded(!isExpanded)}
-                onMouseEnter={(e) => {
-                    if (!isDirectory) {
-                        e.currentTarget.style.background = 'var(--bg-tertiary)'
-                    }
+                onMouseEnter={() => {
+                    if (!isDirectory) setIsHovered(true)
                 }}
-                onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent'
+                onMouseLeave={() => {
+                    if (!isDirectory) setIsHovered(false)
                 }}
                 draggable={!isDirectory}
                 onDragStart={handleDragStart}
+                onClick={() => {
+                    if (isDirectory) {
+                        setIsExpanded(!isExpanded)
+                    } else if (onFileClick) {
+                        onFileClick(fullPath)
+                    }
+                }}
             >
                 <span style={{ 
                     marginRight: '0.25rem', 
@@ -108,8 +121,10 @@ function TreeNode({
                             key={idx} 
                             node={child} 
                             level={level + 1}
-                            basePath={fullPath}
+                            rootPath={rootPath}
                             onFileDrag={onFileDrag}
+                            onFileClick={onFileClick}
+                            selectedPath={selectedPath}
                         />
                     ))}
                 </ul>
@@ -118,7 +133,7 @@ function TreeNode({
     )
 }
 
-export default function FileTree({ folderId, onFileDrag }: Props) {
+export default function FileTree({ folderId, onFileDrag, onFileSelect, selectedPath }: Props) {
     const [tree, setTree] = useState<FileTreeNode | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -150,6 +165,13 @@ export default function FileTree({ folderId, onFileDrag }: Props) {
 
         loadTree()
     }, [folderId])
+
+    const handleFileClick = (filePath: string) => {
+        if (!folderId) return
+        if (typeof onFileSelect === 'function') {
+            onFileSelect(filePath)
+        }
+    }
 
     if (!folderId) {
         return (
@@ -217,8 +239,10 @@ export default function FileTree({ folderId, onFileDrag }: Props) {
                             key={idx} 
                             node={child} 
                             level={0}
-                            basePath={tree.path || tree.name}
+                            rootPath={tree.path || tree.name || ''}
                             onFileDrag={onFileDrag}
+                            onFileClick={handleFileClick}
+                            selectedPath={selectedPath}
                         />
                     ))}
                 </ul>

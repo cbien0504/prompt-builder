@@ -15,7 +15,6 @@ class Folder(Base):
     path = Column(String(1024), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
     status = Column(String(50), nullable=False, index=True)  # pending, indexing, indexed, error
-    repo_count = Column(Integer, default=0)  # Number of repositories in this subproject
     total_files = Column(Integer, default=0)
     indexed_files = Column(Integer, default=0)
     total_chunks = Column(Integer, default=0)

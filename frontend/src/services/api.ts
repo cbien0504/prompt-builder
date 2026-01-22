@@ -8,10 +8,91 @@ export const api = {
     },
 
     async importProject(files: FileList) {
+        const DEFAULT_INCLUDE_RAW = [
+            "*.py", "*.js", "*.ts", "*.tsx", "*.jsx",
+            "*.go", "*.java", "*.kt", "*.cs",
+            "*.rb", "*.php", "*.rs",
+            "*.c", "*.h", "*.cpp", "*.hpp",
+            "*.swift",
+            "*.txt", "*.yaml", "*.yml", "*.json",
+        ]
+
+        const DEFAULT_EXCLUDE_RAW = [
+            ".git/**",
+            "node_modules/**",
+            "dist/**",
+            "build/**",
+            ".venv/**",
+            "venv/**",
+            "__pycache__/**",
+            ".cursorlite/**",
+            "target/**",
+            ".next/**",
+            ".idea/**",
+            ".vscode/**",
+            ".env",
+            ".env.*",
+        ]
+
+        // Mirror backend/src/config.py expand_pattern behavior so nested paths match too.
+        const expandPattern = (pattern: string): string[] => {
+            const p = pattern.trim()
+            if (!p || p.startsWith('#')) return []
+            if (p.startsWith('**/')) return [p]
+            if (p.startsWith('*.')) return [p, `**/${p}`]
+            if (p.includes('/**')) return [p, `**/${p}`]
+            return [p]
+        }
+
+        const expandPatterns = (patterns: string[]): string[] => {
+            const out: string[] = []
+            const seen = new Set<string>()
+            for (const p of patterns) {
+                for (const ep of expandPattern(p)) {
+                    if (!seen.has(ep)) {
+                        seen.add(ep)
+                        out.push(ep)
+                    }
+                }
+            }
+            return out
+        }
+
+        const globToRegExp = (pattern: string): RegExp => {
+            // Escape regex specials, then translate globs (*, **) to regex.
+            const escaped = pattern
+                .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+                .replace(/\*\*/g, "§§DOUBLESTAR§§")
+                .replace(/\*/g, "[^/]*")
+                .replace(/§§DOUBLESTAR§§/g, ".*")
+            return new RegExp(`^${escaped}$`)
+        }
+
+        const includeRegs = expandPatterns(DEFAULT_INCLUDE_RAW).map(globToRegExp)
+        const excludeRegs = expandPatterns(DEFAULT_EXCLUDE_RAW).map(globToRegExp)
+
+        const shouldInclude = (path: string): boolean => {
+            // Exclude first
+            if (excludeRegs.some(re => re.test(path))) return false
+            // Include list: if none match, skip
+            if (!includeRegs.some(re => re.test(path))) return false
+            return true
+        }
+
         const formData = new FormData()
+        let kept = 0
         Array.from(files).forEach(file => {
-            formData.append('files', file)
+            const rel = (file as any).webkitRelativePath || file.name
+            if (shouldInclude(rel)) {
+                formData.append('files', file)
+                kept += 1
+            }
         })
+
+        if (kept === 0) {
+            throw new Error('No files matched the allowed extensions (check include/exclude patterns).')
+        }
+
         const res = await fetch(`${API_BASE}/folders/import`, {
             method: 'POST',
             body: formData
@@ -59,21 +140,41 @@ export const api = {
         return res.json()
     },
 
-    async search(query: string, folderId: number, topK = 10) {
+    async search(
+        query: string,
+        folderId: number,
+        filePaths?: { path: string; start_line?: number; end_line?: number }[],
+        topK = 10
+    ) {
         const res = await fetch(`${API_BASE}/search`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query, folder_id: folderId, top_k: topK })
+            body: JSON.stringify({
+                query,
+                folder_id: folderId,
+                file_paths: filePaths || [],
+                top_k: topK
+            })
         })
         if (!res.ok) throw new Error('Search failed')
         return res.json()
     },
 
-    async generateContext(task: string, folderIds?: number[], topK = 10) {
+    async generateContext(
+        query: string,
+        folderId: number,
+        filePaths?: { path: string; start_line?: number; end_line?: number }[],
+        topK = 10
+    ) {
         const res = await fetch(`${API_BASE}/context`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ task, folder_ids: folderIds, top_k: topK })
+            body: JSON.stringify({
+                query,
+                folder_id: folderId,
+                file_paths: filePaths || [],
+                top_k: topK
+            })
         })
         if (!res.ok) throw new Error('Context generation failed')
         return res.json()
@@ -140,5 +241,11 @@ export const api = {
             console.error('[API] Full response text:', text)
             throw new Error(`Failed to parse JSON response: ${e}. Response preview: ${text.substring(0, 500)}`)
         }
+    },
+
+    async getFileContent(folderId: number, path: string) {
+        const res = await fetch(`${API_BASE}/folders/${folderId}/file?path=${encodeURIComponent(path)}`)
+        if (!res.ok) throw new Error('Failed to load file')
+        return res.json()
     }
 }

@@ -6,19 +6,15 @@ from typing import Dict, List
 
 
 class Embedder:
-    """Abstract base class for embedding models."""
     
     def embed(self, texts: List[str]) -> List[List[float]]:
-        """Embed multiple texts into vectors."""
         raise NotImplementedError
 
     def embed_one(self, text: str) -> List[float]:
-        """Embed a single text into a vector."""
         return self.embed([text])[0]
 
 
 class SentenceTransformersEmbedder(Embedder):
-    """Embedder using SentenceTransformers library."""
     
     def __init__(self, model_name: str) -> None:
         from sentence_transformers import SentenceTransformer  # type: ignore
@@ -31,17 +27,6 @@ class SentenceTransformersEmbedder(Embedder):
 
 
 def make_embedder(cfg: Dict) -> Embedder:
-    """Create embedder from config.
-    
-    Args:
-        cfg: Configuration dictionary
-        
-    Returns:
-        Embedder instance
-        
-    Raises:
-        SystemExit: If backend is invalid or dependencies are missing
-    """
     backend = str(cfg.get("embedding", {}).get("backend", "sentence_transformers")).strip().lower()
     if backend != "sentence_transformers":
         raise SystemExit(f"embedding.backend không hợp lệ: {backend!r}")
